@@ -1,7 +1,8 @@
 import time
 from PIL import Image
-from numpy import *
-from denoise_pycuda import *
+from numpy import clip, linspace, log10, random, sum
+from matplotlib.pyplot import imread, ion, ioff, clf, imshow, draw
+from denoise_pycuda import tv_denoise, tgv_denoise
 
 
 def imwrite(fname, data):

@@ -1,4 +1,3 @@
-from common_pycuda import *
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
 import pycuda.autoinit
@@ -7,13 +6,17 @@ import pycuda.curandom as curandom
 from pycuda.elementwise import ElementwiseKernel
 import reikna.cluda as cluda
 import reikna.fft as pyfft
-from numpy import *
-from matplotlib.pyplot import *
+from numpy import int32, sum
+from common_pycuda import block_size_x, block_size_y, block_, get_grid
+#from matplotlib.pyplot import *
 import sys
 
 
 # kernel code
 kernels = """
+    #include <pycuda-complex.hpp>
+    typedef pycuda::complex<float> scmplx;
+
     __global__ void inpaint_project(float *src, float *dest, int *mask,
                                     int nx, int ny, int chans) {
 
@@ -204,8 +207,7 @@ kernels = """
     }
     }
 
-    __global__ void copy_low_coeff(float *src0, float *dest0,
-                                   float *src1, float *dest1,
+    __global__ void copy_low_coeff(scmplx *src, scmplx *dest,
                                    int power, int nx, int ny) {
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
@@ -224,13 +226,11 @@ kernels = """
         y_dest += ny;
       }
 
-      dest0[y_dest*nx + x_dest] = src0[y_src*(nx << power) + x_src];
-      dest1[y_dest*nx + x_dest] = src1[y_src*(nx << power) + x_src];
+      dest[y_dest*nx + x_dest] = src[y_src*(nx << power) + x_src];
       }
     }
 
-    __global__ void copy_low_coeff_ad(float *src0, float *dest0,  
-                                      float *src1, float *dest1,
+    __global__ void copy_low_coeff_ad(scmplx *src, scmplx *dest,
                                       int power, int nx, int ny) {
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
@@ -249,8 +249,7 @@ kernels = """
         y_dest += (ny << power);
       }
 
-      dest0[y_dest*(nx << power) + x_dest] = src0[y_src*nx + x_src];
-      dest1[y_dest*(nx << power) + x_dest] = src1[y_src*nx + x_src];
+      dest[y_dest*(nx << power) + x_dest] = src[y_src*nx + x_src];
       }
     }
 
@@ -289,6 +288,12 @@ kernels = kernels % {
 
 # compile kernels
 module = compiler.SourceModule(kernels)
+complex_assign = ElementwiseKernel("pycuda::complex<float> *v, float* u",
+                                   "v[i] = u[i]",
+                                   "complex_assign")
+real_assign = ElementwiseKernel("float *u, pycuda::complex<float> *v, float fac",
+                                "u[i] = v[i].real()*fac",
+                                "real_assign")
 inpaint_project_func = module.get_function("inpaint_project")
 zoom_forward_func = module.get_function("zoom_forward")
 zoom_adjoint_func = module.get_function("zoom_adjoint")
@@ -564,19 +569,9 @@ class DCTZoomingOperator(LinearOperator):
         dest_plan = pyfft.FFT(self.dest_hat, axes=(0, 1))
         self.dest_fft = dest_plan.compile(thrd)
 
-        
-        
-        self.dest_plan = pyfft.Plan((dest_shape[1], dest_shape[0]), float32,
-                                    scale=1.0/(dest_shape[0]*dest_shape[1]
-                                               *(1 << power)))
-        self.dest_imag0 = gpuarray.zeros(dest_shape, 'float32', order='F')
-        self.dest_real1 = gpuarray.zeros(dest_shape, 'float32', order='F')
-        self.dest_imag1 = gpuarray.zeros(dest_shape, 'float32', order='F')
-        self.src_plan = pyfft.Plan((src_shape[1], src_shape[0]), float32,
-                                   scale=1.0/(src_shape[0]*src_shape[1]))
-        self.src_imag0 = gpuarray.zeros(src_shape, 'float32', order='F')
-        self.src_real1 = gpuarray.zeros(src_shape, 'float32', order='F')
-        self.src_imag1 = gpuarray.zeros(src_shape, 'float32', order='F')
+        self.src_hat = gpuarray.zeros(src_shape, 'complex64', order='F')
+        src_plan = pyfft.FFT(self.src_hat, axes=(0, 1))
+        self.src_fft = src_plan.compile(thrd)
 
         # store variables
         self.dest_shape = dest_shape
@@ -605,7 +600,7 @@ class DCTZoomingOperator(LinearOperator):
     def apply(self, src, dest):
         """Applies the zooming operator to <src> and stores the result 
         in <dest>."""
-        if (not self.check_shapes(src,dest)):
+        if (not self.check_shapes(src, dest)):
             raise TypeError("Size mismatch")
 
         channels = get_channels(src)
@@ -616,20 +611,19 @@ class DCTZoomingOperator(LinearOperator):
             dest_ = create_slice_view(dest, i)
 
             # transform
-            self.src_plan.execute(src_, self.src_imag0,
-                                  self.src_real1, self.src_imag1)
-            
-            # copy into self.dest_*1
-            copy_low_coeff_func(self.src_real1, self.dest_real1,
-                                self.src_imag1, self.dest_imag1,
+            complex_assign(self.src_hat, src_)
+            self.src_fft(self.src_hat, self.src_hat)
+                        
+            # copy into self.dest_hat
+            copy_low_coeff_func(self.src_hat, self.dest_hat,
                                 int32(self.power),
-                                int32(self.dest_real1.shape[0]), 
-                                int32(self.dest_real1.shape[1]),
-                                block=block_, grid=get_grid(self.dest_real1))
+                                int32(self.dest_hat.shape[0]), 
+                                int32(self.dest_hat.shape[1]),
+                                block=block_, grid=get_grid(self.dest_hat))
 
             # transform back
-            self.dest_plan.execute(self.dest_real1, self.dest_imag1,
-                                   dest_, self.dest_imag0, inverse=True)
+            self.dest_fft(self.dest_hat, self.dest_hat, 1)
+            real_assign(dest_, self.dest_hat, float(1.0/self.factor))
             
     def adjoint(self, src, dest):
         """Applies the adjoint zooming operator to <src> and stores 
@@ -646,22 +640,21 @@ class DCTZoomingOperator(LinearOperator):
             dest_ = create_slice_view(dest, i)
 
             # transform
-            self.dest_plan.execute(src_, self.dest_imag0,
-                                   self.dest_real1, self.dest_imag1)
-            
-            # copy into self.src_*1
-            self.src_real1.fill(0)
-            self.src_imag1.fill(0)
-            copy_low_coeff_ad_func(self.dest_real1, self.src_real1,
-                                   self.dest_imag1, self.src_imag1,
+            complex_assign(self.dest_hat, src_)
+            self.dest_fft(self.dest_hat, self.dest_hat)
+                        
+            # copy into self.src_hat
+            self.src_hat.fill(0)
+            copy_low_coeff_ad_func(self.dest_hat, self.src_hat,
                                    int32(self.power),
-                                   int32(self.dest_real1.shape[0]), 
-                                   int32(self.dest_real1.shape[1]),
-                                   block=block_, grid=get_grid(self.dest_real1))
+                                   int32(self.dest_hat.shape[0]), 
+                                   int32(self.dest_hat.shape[1]),
+                                   block=block_, grid=get_grid(self.dest_hat))
 
             # transform back
-            self.src_plan.execute(self.src_real1, self.src_imag1,
-                                  dest_, self.src_imag0, inverse=True)
+            self.src_fft(self.src_hat, self.src_hat, 1)
+            real_assign(dest_, self.src_hat, float(self.factor))
+
 
 # Pixel accumulation operator
 class AccumulationOperator(LinearOperator):
@@ -755,5 +748,5 @@ def test_adjoint(K, shape, iter=10):
         scp2 = float(gpuarray.dot(u,Kadv).get())
 
         # print result
-        print("Test "+repr(i)+": <Ku,v>="+repr(scp1)+", <u,Kadv>="+repr(scp2)+". Error="+repr(abs(scp1-scp2)))
+        print(f"Test {i}: <Ku,v>={scp1}, <u,Kadv>={scp2}. Error={abs(scp1-scp2)}")
 

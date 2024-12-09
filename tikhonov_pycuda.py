@@ -215,7 +215,7 @@ tgv_update_w_ = tgv_update_u_
 def tv_update_p(u, p, alpha, tau_d):
     tv_update_p_func(u, p, float32(1.0/alpha), float32(tau_d),
                      int32(u.shape[0]), int32(u.shape[1]), int32(u.shape[2]),
-                     block=block, grid=get_grid(u))
+                     block=block_, grid=get_grid(u))
 
 def tv_update_v(v, Ku, f, tau_d, lin_constr=False):
     if (not lin_constr):
@@ -227,7 +227,7 @@ def tv_update_v(v, Ku, f, tau_d, lin_constr=False):
 def tv_update_u(u, p, f, tau_p):
     tv_update_u_func(u, p, f, float32(tau_p),
                      int32(u.shape[0]), int32(u.shape[1]), int32(u.shape[2]),
-                     block=block, grid=get_grid(u))
+                     block=block_, grid=get_grid(u))
 
 
 def tv_tikhonov(K, f, alpha=0.1, maxiter=500, vis=False):
@@ -304,13 +304,13 @@ def tv_tikhonov(K, f, alpha=0.1, maxiter=500, vis=False):
 def tgv_update_p(u, w, p, tau_d, alpha):
     tgv_update_p_func(u, w, p, float32(1.0/alpha), float32(tau_d),
                       int32(u.shape[0]), int32(u.shape[1]), int32(u.shape[2]),
-                      block=block, grid=get_grid(u))
+                      block=block_, grid=get_grid(u))
 
 def tgv_update_q(w, q, tau_d, alpha):
     tgv_update_q_func(w, q, float32(1.0/alpha), float32(tau_d),
                       int32(w.shape[0]), int32(w.shape[1]), 
                       int32(w.shape[2]/2),
-                      block=block, grid=get_grid(w))
+                      block=block_, grid=get_grid(w))
 
 def tgv_update_v(v, Ku, f, tau_d, lin_constr=False):
     if (not lin_constr):
@@ -322,13 +322,13 @@ def tgv_update_v(v, Ku, f, tau_d, lin_constr=False):
 def tgv_update_u(u, p, f, tau_p):
     tgv_update_u_func(u, p, f, float32(tau_p),
                       int32(u.shape[0]), int32(u.shape[1]), int32(u.shape[2]),
-                      block=block, grid=get_grid(u))
+                      block=block_, grid=get_grid(u))
 
 def tgv_update_w(w, p, q, tau_p):
     tgv_update_w_func(w, p, q, float32(tau_p),
                       int32(w.shape[0]), int32(w.shape[1]), 
                       int32(w.shape[2]/2),
-                      block=block, grid=get_grid(w))
+                      block=block_, grid=get_grid(w))
                 
 def tgv_tikhonov(K, f, alpha1=0.1, fac=2.0, maxiter=500, vis=False):
     """Perform Tikhonov functional minimization for Ku=f with

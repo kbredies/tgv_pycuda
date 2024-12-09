@@ -1,9 +1,10 @@
 import time
 from PIL import Image
-from numpy import *
-from common_pycuda import *
-from zoom_pycuda import *
-from linop_pycuda import *
+from numpy import clip, linspace, log10, sum
+from matplotlib.pyplot import imread, ion, ioff, clf, draw, imshow
+import pycuda.gpuarray as gpuarray
+from zoom_pycuda import tv_zoom, tgv_zoom
+from linop_pycuda import ZoomingOperator
 
 
 def imwrite(fname, data):
@@ -31,11 +32,11 @@ def test_range(power, f, f_orig, alphas, tgv=False):
         print(f"Trying alpha={alpha}:")
         if tgv:
             tic = time.time()
-            u = tgv_zoom_dct(f, power, alpha, 3.0, maxiter, vis)
+            u = tgv_zoom(f, power, alpha, 3.0, maxiter, vis)
             toc = time.time() - tic
         else:
             tic = time.time()
-            u = tv_zoom_dct(f, power, alpha, maxiter, vis)
+            u = tv_zoom(f, power, alpha, maxiter, vis)
             toc = time.time() - tic
 
         cur_psnr = PSNR(f_orig, u)
