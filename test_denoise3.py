@@ -25,6 +25,10 @@ def test_range(f, f_orig, alphas, tgv=False):
     maxiter = 1000
     vis = -1
 
+    u_best = None
+    best_alpha = None
+    best_time = None
+
     best_psnr = 0
     for alpha in alphas:
         print(f"Trying alpha={alpha}:")
@@ -56,6 +60,7 @@ def test_range(f, f_orig, alphas, tgv=False):
 
 base = "balloons2"
 noise_thres = 0.333333
+print(f"Denoising test ({base})\n--------------")
 
 f = imread("test_data/" + base + ".png")
 random.seed(14031621)
@@ -65,13 +70,15 @@ g = f.copy()
 g[pattern < noise_thres] = noise[pattern < noise_thres]
 imwrite("results/" + base + "_noisy.png", g)  # , vmin=0.0, vmax=1.0)
 
+print("\nTV denoising\n------------")
 alphas = linspace(0.85, 0.95, 11)
-(u_tv, alpha_tv, psnr_tv, time_tv) = test_range(g, f, alphas)
+u_tv, alpha_tv, psnr_tv, time_tv = test_range(g, f, alphas)
 print(f"TV best parameter: alpha={alpha_tv}, PSNR={psnr_tv}, time={time_tv}")
 imwrite("results/" + base + "_denoised_norm1_tv.png", u_tv)
 
+print("\nTGV denoising\n-------------")
 alphas = linspace(0.8, 0.9, 11)
-(u_tgv, alpha_tgv, psnr_tgv, time_tgv) = test_range(g, f, alphas, tgv=True)
+u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(g, f, alphas, tgv=True)
 print(
     f"TGV best parameter: alpha={alpha_tgv}, PSNR={psnr_tgv}, time={time_tgv}")
 imwrite("results/" + base + "_denoised_norm1_tgv.png", u_tgv)

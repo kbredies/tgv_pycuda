@@ -27,6 +27,10 @@ def test_range(K, f, f_orig, alphas, tgv=False):
     maxiter = 1000
     vis = -1
 
+    u_best = None
+    best_alpha = None
+    best_time = None
+
     best_psnr = 0
     for alpha in alphas:
         print(f"Trying alpha={alpha}:")
@@ -57,6 +61,7 @@ def test_range(K, f, f_orig, alphas, tgv=False):
 
 
 base = "alinas_eye512"
+print(f"Deblurring test ({base})\n---------------")
 
 # create linear operator
 x = list(range(-7, 8))
@@ -76,11 +81,13 @@ noise = random.randn(*Kf.shape) * 0.05
 g = Kf + noise
 imwrite("results/" + base + "_deblur_noisy.png", g)
 
+print("\nTV deblurring\n-------------")
 alphas = linspace(0.0095, 0.0105, 11)
 u_tv, alpha_tv, psnr_tv, time_tv = test_range(K, g, f, alphas)
 print(f"TV best parameter: alpha={alpha_tv}, PSNR={psnr_tv}, time={time_tv}")
 imwrite("results/" + base + "_deblurred_tv.png", u_tv)
 
+print("\nTGV deblurring\n--------------")
 alphas = linspace(0.008, 0.009, 11)
 u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(K, g, f, alphas, tgv=True)
 print(

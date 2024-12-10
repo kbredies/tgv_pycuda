@@ -2,7 +2,8 @@ import time
 from PIL import Image
 from numpy import clip, linspace, log10, sum
 from matplotlib.pyplot import imread, ion, ioff, clf, draw, imshow
-from common_pycuda import gpuarray, enlarge_next_power_of_2
+from pycuda import gpuarray
+from common_pycuda import enlarge_next_power_of_2
 from zoom_pycuda import tv_zoom_dct, tgv_zoom_dct
 from linop_pycuda import DCTZoomingOperator
 
@@ -27,6 +28,10 @@ def test_range(power, f, f_orig, alphas, tgv=False):
     maxiter = 2000
     vis = -1
 
+    u_best = None
+    best_alpha = None
+    best_time = None
+
     best_psnr = 0
     for alpha in alphas:
         print(f"Trying alpha={alpha}:")
@@ -47,7 +52,7 @@ def test_range(power, f, f_orig, alphas, tgv=False):
         ioff()
         draw()
 
-        if (cur_psnr > best_psnr):
+        if cur_psnr > best_psnr:
             u_best = u
             best_alpha = alpha
             best_psnr = cur_psnr
@@ -57,6 +62,7 @@ def test_range(power, f, f_orig, alphas, tgv=False):
 
 
 base = "hand"
+print(f"Zooming test ({base})\n------------")
 
 # read image
 f = imread("test_data/" + base + ".png")
@@ -74,13 +80,16 @@ g = u.get() / float(1 << power)
 
 imwrite("results/" + base + "_small.png", g)  # , vmin=0.0, vmax=1.0)
 
+print("\nTV zooming\n----------")
 alphas = linspace(0.01, 0.1, 1)
 u_tv, alpha_tv, psnr_tv, time_tv = test_range(power, g, f, alphas)
 print(f"TV best parameter: alpha={alpha_tv}, PSNR={psnr_tv}, time={time_tv}")
 imwrite("results/" + base + "_zoomed_tv.png", u_tv)
 
+print("\nTGV zooming\n-----------")
 alphas = linspace(0.01, 0.1, 1)
-u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(power, g, f, alphas, tgv=True)
+u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(
+    power, g, f, alphas, tgv=True)
 print(
     f"TGV best parameter: alpha={alpha_tgv}, PSNR={psnr_tgv}, time={time_tgv}")
 imwrite("results/" + base + "_zoomed_tgv.png", u_tgv)
