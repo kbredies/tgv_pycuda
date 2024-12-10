@@ -78,16 +78,16 @@ u = gpuarray.zeros(K.get_dest_shape(f.shape), 'float32', order='F')
 K.apply(f_gpu, u)
 g = u.get() / float(1 << power)
 
-imwrite("results/" + base + "_small.png", g)  # , vmin=0.0, vmax=1.0)
+imwrite("results/" + base + "_small.png", g)
 
 print("\nTV zooming\n----------")
-alphas = linspace(1.4, 1.6, 11)
+alphas = linspace(0.01, 0.1, 11)
 u_tv, alpha_tv, psnr_tv, time_tv = test_range(power, g, f, alphas)
 print(f"TV best parameter: alpha={alpha_tv}, PSNR={psnr_tv}, time={time_tv}")
 imwrite("results/" + base + "_zoomed_tv.png", u_tv)
 
 print("\nTGV zooming\n-----------")
-alphas = linspace(0.3, 0.4, 11)
+alphas = linspace(0.01, 0.1, 11)
 u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(
     power, g, f, alphas, tgv=True)
 print(

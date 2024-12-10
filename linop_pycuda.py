@@ -2,16 +2,12 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray, compiler, curandom
 from pycuda.elementwise import ElementwiseKernel
-from reikna import cluda
-import reikna.fft as pyfft
-from numpy import int32, sum, zeros, sqrt, c_, r_
+from numpy import float32, int32, sum, zeros, sqrt, c_, r_
 from common_pycuda import block_size_x, block_size_y, block_, get_grid
+import pyfft.cuda as pyfft
 
 # kernel code
 kernels = """
-    #include <pycuda-complex.hpp>
-    typedef pycuda::complex<float> scmplx;
-
     __global__ void inpaint_project(float *src, float *dest, int *mask,
                                     int nx, int ny, int chans) {
 
@@ -202,7 +198,9 @@ kernels = """
     }
     }
 
-    __global__ void copy_low_coeff(scmplx *src, scmplx *dest,
+
+    __global__ void copy_low_coeff(float *src0, float *dest0,
+                                   float *src1, float *dest1,
                                    int power, int nx, int ny) {
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
@@ -221,11 +219,13 @@ kernels = """
         y_dest += ny;
       }
 
-      dest[y_dest*nx + x_dest] = src[y_src*(nx << power) + x_src];
+      dest0[y_dest*nx + x_dest] = src0[y_src*(nx << power) + x_src];
+      dest1[y_dest*nx + x_dest] = src1[y_src*(nx << power) + x_src];
       }
     }
 
-    __global__ void copy_low_coeff_ad(scmplx *src, scmplx *dest,
+    __global__ void copy_low_coeff_ad(float *src0, float *dest0,
+                                      float *src1, float *dest1,
                                       int power, int nx, int ny) {
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
@@ -244,7 +244,8 @@ kernels = """
         y_dest += (ny << power);
       }
 
-      dest[y_dest*(nx << power) + x_dest] = src[y_src*nx + x_src];
+      dest0[y_dest*(nx << power) + x_dest] = src0[y_src*nx + x_src];
+      dest1[y_dest*(nx << power) + x_dest] = src1[y_src*nx + x_src];
       }
     }
 
@@ -283,13 +284,6 @@ kernels = kernels % {
 
 # compile kernels
 module = compiler.SourceModule(kernels)
-complex_assign = ElementwiseKernel("pycuda::complex<float> *v, float* u",
-                                   "v[i] = u[i]",
-                                   "complex_assign")
-real_assign = ElementwiseKernel(
-    "float *u, pycuda::complex<float> *v, float fac",
-    "u[i] = v[i].real()*fac",
-    "real_assign")
 inpaint_project_func = module.get_function("inpaint_project")
 zoom_forward_func = module.get_function("zoom_forward")
 zoom_adjoint_func = module.get_function("zoom_adjoint")
@@ -298,10 +292,6 @@ convolve_adjoint_func = module.get_function("convolve_full")
 copy_low_coeff_func = module.get_function("copy_low_coeff")
 copy_low_coeff_ad_func = module.get_function("copy_low_coeff_ad")
 accumulate_pixels_func = module.get_function("accumulate_pixels")
-
-# initialize cluda thread
-api = cluda.cuda_api()
-thrd = api.Thread(pycuda.autoinit.context)
 
 
 def get_channels(u):
@@ -316,7 +306,6 @@ def create_slice_view(u, num):
     v.nbytes = u.strides[2]
     v.mem_size = u.shape[0] * u.shape[1]
     return v
-
 
 
 # prototype for a linear operator on the GPU
@@ -350,7 +339,6 @@ class LinearOperator:
         in <dest>."""
 
 
-
 # the identity operator on the GPU
 class IdentityOperator(LinearOperator):
     """The identity operator."""
@@ -379,7 +367,6 @@ class IdentityOperator(LinearOperator):
         """Applies the adjoint of <self> to <src> and stores the result
         in <dest>."""
         self.apply(src, dest)
-
 
 
 # inpainting operator
@@ -429,7 +416,6 @@ class InpaintingOperator(LinearOperator):
                              int32(src.shape[0]), int32(src.shape[1]),
                              int32(get_channels(src)),
                              block=block_, grid=get_grid(src))
-
 
 
 # zooming operator
@@ -484,7 +470,6 @@ class ZoomingOperator(LinearOperator):
                           int32(dest.shape[0]), int32(dest.shape[1]),
                           int32(get_channels(dest)),
                           block=block_, grid=get_grid(dest))
-
 
 
 # convolution operator
@@ -558,7 +543,6 @@ class ConvolutionOperator(LinearOperator):
                               block=block_, grid=get_grid(dest))
 
 
-
 # DCT zooming operator
 class DCTZoomingOperator(LinearOperator):
     """Zooming operator which performs DCT-lowpass filter
@@ -573,13 +557,17 @@ class DCTZoomingOperator(LinearOperator):
         src_shape = (shape[0] << power, shape[1] << power)
 
         # create plans and additional data
-        self.dest_hat = gpuarray.zeros(dest_shape, 'complex64', order='F')
-        dest_plan = pyfft.FFT(self.dest_hat, axes=(0, 1))
-        self.dest_fft = dest_plan.compile(thrd)
-
-        self.src_hat = gpuarray.zeros(src_shape, 'complex64', order='F')
-        src_plan = pyfft.FFT(self.src_hat, axes=(0, 1))
-        self.src_fft = src_plan.compile(thrd)
+        self.dest_plan = pyfft.Plan((dest_shape[1], dest_shape[0]), float32,
+                                    scale=1.0 / (dest_shape[0] * dest_shape[1]
+                                                 * (1 << power)))
+        self.dest_imag0 = gpuarray.zeros(dest_shape, 'float32', order='F')
+        self.dest_real1 = gpuarray.zeros(dest_shape, 'float32', order='F')
+        self.dest_imag1 = gpuarray.zeros(dest_shape, 'float32', order='F')
+        self.src_plan = pyfft.Plan((src_shape[1], src_shape[0]), float32,
+                                   scale=1.0 / (src_shape[0] * src_shape[1]))
+        self.src_imag0 = gpuarray.zeros(src_shape, 'float32', order='F')
+        self.src_real1 = gpuarray.zeros(src_shape, 'float32', order='F')
+        self.src_imag1 = gpuarray.zeros(src_shape, 'float32', order='F')
 
         # store variables
         self.dest_shape = dest_shape
@@ -619,19 +607,20 @@ class DCTZoomingOperator(LinearOperator):
             dest_ = create_slice_view(dest, i)
 
             # transform
-            complex_assign(self.src_hat, src_)
-            self.src_fft(self.src_hat, self.src_hat)
+            self.src_plan.execute(src_, self.src_imag0,
+                                  self.src_real1, self.src_imag1)
 
-            # copy into self.dest_hat
-            copy_low_coeff_func(self.src_hat, self.dest_hat,
+            # copy into self.dest_*1
+            copy_low_coeff_func(self.src_real1, self.dest_real1,
+                                self.src_imag1, self.dest_imag1,
                                 int32(self.power),
-                                int32(self.dest_hat.shape[0]),
-                                int32(self.dest_hat.shape[1]),
-                                block=block_, grid=get_grid(self.dest_hat))
+                                int32(self.dest_real1.shape[0]),
+                                int32(self.dest_real1.shape[1]),
+                                block=block_, grid=get_grid(self.dest_real1))
 
             # transform back
-            self.dest_fft(self.dest_hat, self.dest_hat, 1)
-            real_assign(dest_, self.dest_hat, float(1.0 / self.factor))
+            self.dest_plan.execute(self.dest_real1, self.dest_imag1,
+                                   dest_, self.dest_imag0, inverse=True)
 
     def adjoint(self, src, dest):
         """Applies the adjoint zooming operator to <src> and stores
@@ -648,20 +637,22 @@ class DCTZoomingOperator(LinearOperator):
             dest_ = create_slice_view(dest, i)
 
             # transform
-            complex_assign(self.dest_hat, src_)
-            self.dest_fft(self.dest_hat, self.dest_hat)
+            self.dest_plan.execute(src_, self.dest_imag0,
+                                   self.dest_real1, self.dest_imag1)
 
-            # copy into self.src_hat
-            self.src_hat.fill(0)
-            copy_low_coeff_ad_func(self.dest_hat, self.src_hat,
-                                   int32(self.power),
-                                   int32(self.dest_hat.shape[0]),
-                                   int32(self.dest_hat.shape[1]),
-                                   block=block_, grid=get_grid(self.dest_hat))
+            # copy into self.src_*1
+            self.src_real1.fill(0)
+            self.src_imag1.fill(0)
+            copy_low_coeff_ad_func(
+                self.dest_real1, self.src_real1, self.dest_imag1, self.src_imag1, int32(
+                    self.power), int32(
+                    self.dest_real1.shape[0]), int32(
+                    self.dest_real1.shape[1]), block=block_, grid=get_grid(
+                    self.dest_real1))
 
             # transform back
-            self.src_fft(self.src_hat, self.src_hat, 1)
-            real_assign(dest_, self.src_hat, float(self.factor))
+            self.src_plan.execute(self.src_real1, self.src_imag1,
+                                  dest_, self.src_imag0, inverse=True)
 
 
 # Pixel accumulation operator

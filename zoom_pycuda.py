@@ -2,18 +2,14 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray, compiler
 from pycuda.elementwise import ElementwiseKernel
-from reikna import cluda
-import reikna.fft as pyfft
 from numpy import float32, int32, zeros, sqrt, array, require
 from common_pycuda import block_size_x, block_size_y, block_, get_grid, \
-     prepare_data, enlarge_next_power_of_2, display, visualize, gpuarray_copy
+    prepare_data, enlarge_next_power_of_2, display, visualize, gpuarray_copy
+import pyfft.cuda as pyfft
 
 
 # kernel code
 kernels = """
-    #include <pycuda-complex.hpp>
-    typedef pycuda::complex<float> scmplx;
-
     __global__ void tv_update_p(float *u, float *p, float alpha_inv,
                                 float tau_d, int nx, int ny, int chans) {
     __shared__ float l_px[%(BLOCK_SIZE_X)s][%(BLOCK_SIZE_Y)s][4];
@@ -251,7 +247,7 @@ kernels = """
     }
     }
 
-    __global__ void set_dct_coeff(scmplx *dest, scmplx *src, int power,
+    __global__ void set_dct_coeff(float *dest, float *src, int power,
                                   int nx, int ny, int chans) {
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
@@ -305,10 +301,6 @@ tgv_update_u_ = tv_update_u_
 tgv_update_w_ = tgv_update_u_
 set_dct_coeff_func = module.get_function("set_dct_coeff")
 
-# initialize cluda thread
-api = cluda.cuda_api()
-thrd = api.Thread(pycuda.autoinit.context)
-
 
 def tv_update_p(u, p, alpha, tau_d):
     tv_update_p_func(u, p, float32(1.0 / alpha), float32(tau_d),
@@ -323,21 +315,24 @@ def tv_update_u_avg(u, p, f, power, tau_p):
                          block=block_, grid=get_grid(u))
 
 
-def tv_update_u_dct(u, p, uhat, fhat, power, tau_p, fft):
-    tv_update_u_dct_func(u, p, float32(tau_p),
-                         int32(u.shape[0]), int32(u.shape[1]),
-                         int32(u.shape[2]),
-                         block=block_, grid=get_grid(u))
+def tv_update_u_dct(u_real, u_imag, p, fhat_real, fhat_imag,
+                    power, tau_p, plan):
+    tv_update_u_dct_func(u_real, p, float32(tau_p),
+                         int32(u_real.shape[0]), int32(u_real.shape[1]),
+                         int32(u_real.shape[2]),
+                         block=block_, grid=get_grid(u_real))
 
     # forward transform + setting coefficients + inverse transform
-    complex_assign(uhat, u)
-    fft(uhat, uhat)
-    set_dct_coeff_func(uhat, fhat, int32(power),
-                       int32(fhat.shape[0]), int32(fhat.shape[1]),
-                       int32(fhat.shape[2]),
-                       block=block_, grid=get_grid(fhat))
-    fft(uhat, uhat, 1)
-    real_assign(u, uhat)
+    plan.execute(u_real, u_imag, batch=u_real.shape[2])
+    set_dct_coeff_func(u_real, fhat_real, int32(power),
+                       int32(fhat_real.shape[0]), int32(fhat_real.shape[1]),
+                       int32(fhat_real.shape[2]),
+                       block=block_, grid=get_grid(fhat_real))
+    set_dct_coeff_func(u_imag, fhat_imag, int32(power),
+                       int32(fhat_imag.shape[0]), int32(fhat_imag.shape[1]),
+                       int32(fhat_imag.shape[2]),
+                       block=block_, grid=get_grid(fhat_imag))
+    plan.execute(u_real, u_imag, inverse=True, batch=u_real.shape[2])
 
 
 def tv_zoom(f, power, alpha=0.1, maxiter=500, vis=-1):
@@ -405,14 +400,15 @@ def tv_zoom_dct(f, power, alpha=0.1, maxiter=500, vis=-1):
     iterations."""
 
     # copy data f on the gpu (fortran order)
-    f = prepare_data(f * (1 << 2*power))
+    f = prepare_data(f)
     f = enlarge_next_power_of_2(f)
-    fhat = gpuarray.to_gpu(require(f, 'complex64', 'F'))
+    f_gpu_real = gpuarray.to_gpu(f)
+    f_gpu_imag = gpuarray.zeros(f_gpu_real.shape, 'float32', order='F')
 
     # make plan for data
-    plan_f = pyfft.FFT(fhat, axes=(0, 1))
-    fft_data = plan_f.compile(thrd)
-    fft_data(fhat, fhat)
+    plan_f = pyfft.Plan((f.shape[1], f.shape[0]), float32,
+                        scale=1.0 / (f.shape[0] * f.shape[1]))
+    plan_f.execute(f_gpu_real, f_gpu_imag, batch=f.shape[2])
 
     # get shape of solution
     src_shape = array(f.shape)
@@ -421,14 +417,14 @@ def tv_zoom_dct(f, power, alpha=0.1, maxiter=500, vis=-1):
 
     # set up variables
     u = gpuarray.zeros(src_shape, 'float32', order='F')
+    u_imag = gpuarray.zeros(src_shape, 'float32', order='F')
     u_ = gpuarray_copy(u)
-    uhat = gpuarray.zeros(src_shape, 'complex64', order='F')
     p = gpuarray.zeros([u.shape[0], u.shape[1], 2 * u.shape[2]],
                        'float32', order='F')
 
     # make plan for solution
-    plan_u = pyfft.FFT(uhat, axes=(0, 1))
-    fft = plan_u.compile(thrd)
+    plan_u = pyfft.Plan((u.shape[1], u.shape[0]), float32,
+                        scale=1.0 / (u.shape[0] * u.shape[1]))
 
     L2 = 8.0
     k = 0
@@ -450,7 +446,8 @@ def tv_zoom_dct(f, power, alpha=0.1, maxiter=500, vis=-1):
         ###############
         # primal update
         cuda.memcpy_dtod(u_.gpudata, u.gpudata, u.nbytes)
-        tv_update_u_dct(u, p, uhat, fhat, power, tau_p, fft)
+        tv_update_u_dct(u, u_imag, p, f_gpu_real, f_gpu_imag,
+                        power, tau_p, plan_u)
 
         ######################
         # extragradient update
@@ -570,23 +567,24 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
     (fac*alpha1, alpha1) and maxiter iterations."""
 
     # copy data f on the gpu (fortran order)
-    f = prepare_data(f * (1 << 2*power))
+    f = prepare_data(f)
     f = enlarge_next_power_of_2(f)
-    fhat = gpuarray.to_gpu(require(f, 'complex64', 'F'))
+    f_gpu_real = gpuarray.to_gpu(f)
+    f_gpu_imag = gpuarray.zeros(f_gpu_real.shape, 'float32', order='F')
 
     # make plan for data
-    plan_f = pyfft.FFT(fhat, axes=(0, 1))
-    fft_data = plan_f.compile(thrd)
-    fft_data(fhat, fhat)
+    plan_f = pyfft.Plan((f.shape[1], f.shape[0]), float32,
+                        scale=1.0 / (f.shape[0] * f.shape[1]))
+    plan_f.execute(f_gpu_real, f_gpu_imag, batch=f.shape[2])
 
     # get shape of solution
     src_shape = array(f.shape)
-    src_shape[0:2] *= 1 << power
+    src_shape[0:2] *= (1 << power)
     src_shape = [int(a) for a in src_shape]
 
     # set up primal variables
     u = gpuarray.zeros(src_shape, 'float32', order='F')
-    uhat = gpuarray.zeros(src_shape, 'complex64', order='F')
+    u_imag = gpuarray.zeros(src_shape, 'float32', order='F')
     u_ = gpuarray_copy(u)
     w = gpuarray.zeros([u.shape[0], u.shape[1], 2 * u.shape[2]],
                        'float32', order='F')
@@ -599,9 +597,14 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
     q = gpuarray.zeros([u.shape[0], u.shape[1], 3 * u.shape[2]],
                        'float32', order='F')
 
+    # set up primal variables
+    u = gpuarray.zeros(src_shape, 'float32', order='F')
+    uhat = gpuarray.zeros(src_shape, 'complex64', order='F')
+    u_ = gpuarray_copy(u)
+
     # make plan for solution
-    plan_u = pyfft.FFT(uhat, axes=(0, 1))
-    fft = plan_u.compile(thrd)
+    plan_u = pyfft.Plan((u.shape[1], u.shape[0]), float32,
+                        scale=1.0 / (u.shape[0] * u.shape[1]))
 
     L2 = 12.0
     alpha0 = fac * alpha1
@@ -630,7 +633,8 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
         cuda.memcpy_dtod(u_.gpudata, u.gpudata, u.nbytes)
         cuda.memcpy_dtod(w_.gpudata, w.gpudata, w.nbytes)
 
-        tv_update_u_dct(u, p, uhat, fhat, power, tau_p, fft)
+        tv_update_u_dct(u, u_imag, p, f_gpu_real, f_gpu_imag,
+                        power, tau_p, plan_u)
         tgv_update_w(w, p, q, tau_p)
 
         ######################
