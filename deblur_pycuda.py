@@ -1,6 +1,6 @@
-from tikhonov_pycuda import *
-from linop_pycuda import *
-from numpy import *
+from tikhonov_pycuda import tv_tikhonov, tgv_tikhonov
+from linop_pycuda import ConvolutionOperator
+
 
 def tv_deblur(f, mask, alpha=0.1, maxiter=500, vis=-1):
     """Perform deblurring of f convolved with mask
@@ -8,7 +8,8 @@ def tv_deblur(f, mask, alpha=0.1, maxiter=500, vis=-1):
     alpha and maxiter iterations."""
 
     K = ConvolutionOperator(mask)
-    return(tv_tikhonov(K, f, alpha, maxiter, vis))
+    return tv_tikhonov(K, f, alpha, maxiter, vis)
+
 
 def tgv_deblur(f, mask, alpha=0.1, fac=2.0, maxiter=500, vis=-1):
     """Perform deblurring of f convolved with mask
@@ -16,4 +17,4 @@ def tgv_deblur(f, mask, alpha=0.1, fac=2.0, maxiter=500, vis=-1):
     (fac*alpha, alpha) and maxiter iterations."""
 
     K = ConvolutionOperator(mask)
-    return(tgv_tikhonov(K, f, alpha, fac, maxiter, vis))
+    return tgv_tikhonov(K, f, alpha, fac, maxiter, vis)

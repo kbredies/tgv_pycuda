@@ -1,16 +1,11 @@
-import pycuda.gpuarray as gpuarray
-import pycuda.driver as cuda
 import pycuda.autoinit
-import pycuda.compiler as compiler
-import pycuda.curandom as curandom
+import pycuda.driver as cuda
+from pycuda import gpuarray, compiler, curandom
 from pycuda.elementwise import ElementwiseKernel
-import reikna.cluda as cluda
+from reikna import cluda
 import reikna.fft as pyfft
-from numpy import int32, sum
+from numpy import int32, sum, zeros, sqrt, c_, r_
 from common_pycuda import block_size_x, block_size_y, block_, get_grid
-#from matplotlib.pyplot import *
-import sys
-
 
 # kernel code
 kernels = """
@@ -25,7 +20,7 @@ kernels = """
 
     if ((x < nx) && (y < ny))
         for (int i=0; i<chans; i++)
-          dest[(i*ny+y)*nx+x] = mask[y*nx+x] ? 0.0f : src[(i*ny+y)*nx+x]; 
+          dest[(i*ny+y)*nx+x] = mask[y*nx+x] ? 0.0f : src[(i*ny+y)*nx+x];
     }
 
     __global__ void zoom_forward(float *src, float *dest, int power,
@@ -40,7 +35,7 @@ kernels = """
     if ((x < nx) && (y < ny))
       for (int i=0; i<chans; i++)
         l_src[threadIdx.x][threadIdx.y][i] = src[(i*ny+y)*nx+x];
-    else 
+    else
       for (int i=0; i<chans; i++)
         l_src[threadIdx.x][threadIdx.y][i] = 0.0f;
 
@@ -54,20 +49,20 @@ kernels = """
         // reduce in x direction
         __syncthreads();
         if ((threadIdx.x & mask) == 0)
-          l_src[threadIdx.x][threadIdx.y][i] += 
+          l_src[threadIdx.x][threadIdx.y][i] +=
                    l_src[threadIdx.x+step][threadIdx.y][i];
 
         // reduce in y direction
         __syncthreads();
         if ((threadIdx.y & mask) == 0)
-          l_src[threadIdx.x][threadIdx.y][i] += 
+          l_src[threadIdx.x][threadIdx.y][i] +=
                    l_src[threadIdx.x][threadIdx.y+step][i];
       }
 
       step *= 2;
     }
-      
-    // write result  
+
+    // write result
     __syncthreads();
 
     float reduction = 1.0f/((float)step*step);
@@ -81,7 +76,7 @@ kernels = """
 
     __global__ void zoom_adjoint(float *src, float *dest, int power,
                                  int nx, int ny, int chans) {
-    
+
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
     int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;
 
@@ -94,7 +89,7 @@ kernels = """
 
       int s_x = x >> power;
       int s_y = y >> power;
-      for (int i=0; i < chans; i++) 
+      for (int i=0; i < chans; i++)
         dest[(i*ny+y)*nx+x] = src[(i*s_ny+s_y)*s_nx+s_x]*reduction;
     }
     }
@@ -105,7 +100,7 @@ kernels = """
         return(ary[y*nx+x]);
       return(0);
     }
-  
+
     __device__ void write_array(float *ary, float val, int x, int y, int nx, int ny)
     {
       if ((x >= 0) && (y >= 0) && (x < nx) && (y < ny))
@@ -113,7 +108,7 @@ kernels = """
     }
 
     __global__ void convolve_valid(float *src, float *mask, float *dest,
-                                   int nx, int ny, int chans, 
+                                   int nx, int ny, int chans,
                                    int m_nx, int m_ny) {
 
     __shared__ float l_src[2*%(BLOCK_SIZE_X)s][2*%(BLOCK_SIZE_Y)s];
@@ -121,23 +116,23 @@ kernels = """
     __shared__ float l_dest[%(BLOCK_SIZE_X)s][%(BLOCK_SIZE_Y)s];
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
-    int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;    
+    int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;
 
     if ((threadIdx.x <= 2*m_nx) && (threadIdx.y <= 2*m_ny))
-      l_mask[threadIdx.x][threadIdx.y] 
+      l_mask[threadIdx.x][threadIdx.y]
                          = mask[threadIdx.y*(2*m_nx+1)+threadIdx.x];
 
     for (int i=0; i < chans; i++) {
 
       // read source into shared memory
       __syncthreads();
-      l_src[threadIdx.x][threadIdx.y] 
+      l_src[threadIdx.x][threadIdx.y]
              = read_array(src, x, y, nx, ny);
-      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y] 
+      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y]
              = read_array(src, x+%(BLOCK_SIZE_X)s, y, nx, ny);
-      l_src[threadIdx.x][threadIdx.y+%(BLOCK_SIZE_Y)s] 
+      l_src[threadIdx.x][threadIdx.y+%(BLOCK_SIZE_Y)s]
              = read_array(src, x, y+%(BLOCK_SIZE_Y)s, nx, ny);
-      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y+%(BLOCK_SIZE_Y)s] 
+      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y+%(BLOCK_SIZE_Y)s]
              = read_array(src, x+%(BLOCK_SIZE_X)s, y+%(BLOCK_SIZE_Y)s, nx, ny);
 
       // do convolution
@@ -159,7 +154,7 @@ kernels = """
     }
 
     __global__ void convolve_full(float *src, float *mask, float *dest,
-                                  int nx, int ny, int chans, 
+                                  int nx, int ny, int chans,
                                   int m_nx, int m_ny) {
 
     __shared__ float l_src[2*%(BLOCK_SIZE_X)s][2*%(BLOCK_SIZE_Y)s];
@@ -167,26 +162,26 @@ kernels = """
     __shared__ float l_dest[%(BLOCK_SIZE_X)s][%(BLOCK_SIZE_Y)s];
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
-    int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;    
+    int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;
 
     if ((threadIdx.x <= 2*m_nx) && (threadIdx.y <= 2*m_ny))
-      l_mask[threadIdx.x][threadIdx.y] 
+      l_mask[threadIdx.x][threadIdx.y]
                          = mask[threadIdx.y*(2*m_nx+1)+threadIdx.x];
 
     for (int i=0; i < chans; i++) {
       // read source into shared memory
       __syncthreads();
-      l_src[threadIdx.x][threadIdx.y] 
-            = read_array(src, x-%(BLOCK_SIZE_X)s, y-%(BLOCK_SIZE_Y)s, 
+      l_src[threadIdx.x][threadIdx.y]
+            = read_array(src, x-%(BLOCK_SIZE_X)s, y-%(BLOCK_SIZE_Y)s,
                          nx-2*m_nx, ny-2*m_ny);
-      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y] 
-            = read_array(src, x, y-%(BLOCK_SIZE_Y)s, 
+      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y]
+            = read_array(src, x, y-%(BLOCK_SIZE_Y)s,
                          nx-2*m_nx, ny-2*m_ny);
-      l_src[threadIdx.x][threadIdx.y+%(BLOCK_SIZE_Y)s] 
-            = read_array(src, x-%(BLOCK_SIZE_X)s, y, 
+      l_src[threadIdx.x][threadIdx.y+%(BLOCK_SIZE_Y)s]
+            = read_array(src, x-%(BLOCK_SIZE_X)s, y,
                          nx-2*m_nx, ny-2*m_ny);
-      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y+%(BLOCK_SIZE_Y)s] 
-            = read_array(src, x, y, 
+      l_src[threadIdx.x+%(BLOCK_SIZE_X)s][threadIdx.y+%(BLOCK_SIZE_Y)s]
+            = read_array(src, x, y,
                           nx-2*m_nx, ny-2*m_ny);
 
       // do convolution
@@ -212,7 +207,7 @@ kernels = """
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
     int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;
-   
+
     if ((x < nx) && (y < ny)) {
       int x_src = x - (nx >> 1); int x_dest = x_src;
       if (x_src < 0) {
@@ -235,7 +230,7 @@ kernels = """
 
     int x = blockIdx.x * %(BLOCK_SIZE_X)s + threadIdx.x;
     int y = blockIdx.y * %(BLOCK_SIZE_Y)s + threadIdx.y;
-   
+
     if ((x < nx) && (y < ny)) {
       int x_src = x - (nx >> 1); int x_dest = x_src;
       if (x_src < 0) {
@@ -255,7 +250,7 @@ kernels = """
 
     __global__ void accumulate_pixels(char *ary, float *src, float *dest,
                                       int nx, int ny, int chans, int stride) {
-    int idx = (blockIdx.x * %(BLOCK_SIZE_Y)s + threadIdx.y) 
+    int idx = (blockIdx.x * %(BLOCK_SIZE_Y)s + threadIdx.y)
               * %(BLOCK_SIZE_X)s + threadIdx.x;
 
     float acc[4];
@@ -264,36 +259,37 @@ kernels = """
       ary += idx;
 
       // reset
-      for (int i=0; i<chans; i++) 
+      for (int i=0; i<chans; i++)
         acc[i] = 0.0f;
 
       // accumulate
       for (int j=0; j<nx; j++) {
-        if (ary[0]) 
+        if (ary[0])
           for (int i=0; i<chans; i++)
              acc[i] += src[i*nx+j];
         ary += stride;
       }
-  
+
       // write
-      for (int i=0; i<chans; i++) 
+      for (int i=0; i<chans; i++)
         dest[i*ny+idx] = acc[i];
     }
     }
     """
 kernels = kernels % {
     'BLOCK_SIZE_X': block_size_x,
-    'BLOCK_SIZE_Y': block_size_y, 
-    }
+    'BLOCK_SIZE_Y': block_size_y,
+}
 
 # compile kernels
 module = compiler.SourceModule(kernels)
 complex_assign = ElementwiseKernel("pycuda::complex<float> *v, float* u",
                                    "v[i] = u[i]",
                                    "complex_assign")
-real_assign = ElementwiseKernel("float *u, pycuda::complex<float> *v, float fac",
-                                "u[i] = v[i].real()*fac",
-                                "real_assign")
+real_assign = ElementwiseKernel(
+    "float *u, pycuda::complex<float> *v, float fac",
+    "u[i] = v[i].real()*fac",
+    "real_assign")
 inpaint_project_func = module.get_function("inpaint_project")
 zoom_forward_func = module.get_function("zoom_forward")
 zoom_adjoint_func = module.get_function("zoom_adjoint")
@@ -307,80 +303,86 @@ accumulate_pixels_func = module.get_function("accumulate_pixels")
 api = cluda.cuda_api()
 thrd = api.Thread(pycuda.autoinit.context)
 
+
 def get_channels(u):
     return 1 if len(u.shape) <= 2 else u.shape[2]
+
 
 def create_slice_view(u, num):
     v = u.ravel()
     v.shape = (u.shape[0], u.shape[1])
     v.strides = (u.strides[0], u.strides[1])
-    v.gpudata = int(u.gpudata) + u.strides[2]*num
+    v.gpudata = int(u.gpudata) + u.strides[2] * num
     v.nbytes = u.strides[2]
-    v.mem_size = u.shape[0]*u.shape[1]
-    return(v)
+    v.mem_size = u.shape[0] * u.shape[1]
+    return v
 
 # prototype for a linear operator on the GPU
+
+
 class LinearOperator:
     """Prototype for a linear operator."""
 
     def get_dest_shape(self, shape):
         """Returns the shape of the image of <self> applied to data with
         shape <shape>."""
-        return(shape)
-    
+        return shape
+
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
-        return(shape)
+        return shape
 
     def check_shapes(self, src, dest):
         """Checks whether shape of <src> and <dest> match."""
-        return ((self.get_dest_shape(src.shape) == tuple(dest.shape)) and
-                (self.get_src_shape(dest.shape) == tuple(src.shape)))
+        return (self.get_dest_shape(src.shape) == tuple(dest.shape)) and \
+            (self.get_src_shape(dest.shape) == tuple(src.shape))
 
     def norm_est(self):
         """Return a norm estimate for <self>."""
-        return(0)
+        return 0
 
     def apply(self, src, dest):
         """Applies <self> to <src> and stores the result in <dest>."""
-        dest = 0
 
     def adjoint(self, src, dest):
-        """Applies the adjoint of <self> to <src> and stores the result 
+        """Applies the adjoint of <self> to <src> and stores the result
         in <dest>."""
-        dest = 0
 
 # the identity operator on the GPU
+
+
 class IdentityOperator(LinearOperator):
     """The identity operator."""
 
     def get_dest_shape(self, shape):
         """Returns the shape of the image of <self> applied to data with
         shape <shape>."""
-        return(shape)
-    
+        return shape
+
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
-        return(shape)
+        return shape
 
     def norm_est(self):
         """Return a norm estimate for <self>."""
-        return(1.0)
+        return 1.0
 
     def apply(self, src, dest):
         """Applies <self> to <src> and stores the result in <dest>."""
-        if (not self.check_shapes(src,dest)):
+        if not self.check_shapes(src, dest):
             raise TypeError("Size mismatch")
         cuda.memcpy_dtod(dest.gpudata, src.gpudata, src.nbytes)
 
     def adjoint(self, src, dest):
-        """Applies the adjoint of <self> to <src> and stores the result 
+        """Applies the adjoint of <self> to <src> and stores the result
         in <dest>."""
         self.apply(src, dest)
 
 # inpainting operator
+
+
 class InpaintingOperator(LinearOperator):
     """Inpainting operator which projects on the space spanned by
     the elements given by the non-zero elements of an inpainting mask."""
@@ -395,40 +397,42 @@ class InpaintingOperator(LinearOperator):
         shape <shape>."""
         dshape = list(shape)
         dshape[0:2] = self.mask.shape[0:2]
-        return(tuple(dshape))
+        return tuple(dshape)
 
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
         dshape = list(shape)
         dshape[0:2] = self.mask.shape[0:2]
-        return(tuple(dshape))
+        return tuple(dshape)
 
     def norm_est(self):
         """Return a norm estimate for <self>."""
-        return(1.0)
+        return 1.0
 
     def apply(self, src, dest):
         """Applies the projection operator to <src> storing the result
         in <dest>."""
-        if (not self.check_shapes(src,dest)):
+        if not self.check_shapes(src, dest):
             raise TypeError("Size mismatch")
-        inpaint_project_func(src, dest, self.mask, 
-                             int32(src.shape[0]), int32(src.shape[1]), 
+        inpaint_project_func(src, dest, self.mask,
+                             int32(src.shape[0]), int32(src.shape[1]),
                              int32(get_channels(src)),
                              block=block_, grid=get_grid(src))
 
     def adjoint(self, src, dest):
         """Applies the projection operator to <src> storing the result
         in <dest>."""
-        if (not self.check_shapes(src,dest)):
+        if not self.check_shapes(src, dest):
             raise TypeError("Size mismatch")
-        inpaint_project_func(src, dest, self.mask, 
-                             int32(src.shape[0]), int32(src.shape[1]), 
+        inpaint_project_func(src, dest, self.mask,
+                             int32(src.shape[0]), int32(src.shape[1]),
                              int32(get_channels(src)),
                              block=block_, grid=get_grid(src))
 
 # zooming operator
+
+
 class ZoomingOperator(LinearOperator):
     """Zooming operator which averages over 2^p x 2^p pixel blocks
     where p is in [0,1,2,3,4]."""
@@ -436,7 +440,7 @@ class ZoomingOperator(LinearOperator):
     def __init__(self, power):
         """Initializes operator with factor 2^<power>."""
         allowed_powers = list(range(5))
-        if (not power in allowed_powers):
+        if power not in allowed_powers:
             raise TypeError("Power not in allowed range.")
         self.power = power
         self.factor = pow(2, power)
@@ -446,42 +450,44 @@ class ZoomingOperator(LinearOperator):
         shape <shape>."""
         dshape = list(shape)
         for i in range(2):
-            dshape[i] = (dshape[i] + self.factor-1)//self.factor
-        return(tuple(dshape))
+            dshape[i] = (dshape[i] + self.factor - 1) // self.factor
+        return tuple(dshape)
 
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
         sshape = list(shape)
         for i in range(2):
             sshape[i] *= self.factor
-        return(tuple(sshape))
+        return tuple(sshape)
 
     def norm_est(self):
         """Returns a norm estimate for <self>."""
-        return(1.0)
+        return 1.0
 
     def apply(self, src, dest):
-        """Applies the zooming operator to <src> and stores the result 
+        """Applies the zooming operator to <src> and stores the result
         in <dest>."""
-        if (not self.get_dest_shape(src.shape) == dest.shape):
+        if not self.get_dest_shape(src.shape) == dest.shape:
             raise TypeError("Size mismatch")
-        zoom_forward_func(src, dest, int32(self.power), 
-                          int32(src.shape[0]), int32(src.shape[1]), 
+        zoom_forward_func(src, dest, int32(self.power),
+                          int32(src.shape[0]), int32(src.shape[1]),
                           int32(get_channels(src)),
                           block=block_, grid=get_grid(src))
 
     def adjoint(self, src, dest):
-        """Applies the adjoint zooming operator to <src> and stores 
+        """Applies the adjoint zooming operator to <src> and stores
         the result in <dest>."""
-        if (not self.get_dest_shape(dest.shape) == src.shape):
+        if not self.get_dest_shape(dest.shape) == src.shape:
             raise TypeError("Size mismatch")
-        zoom_adjoint_func(src, dest, int32(self.power), 
-                          int32(dest.shape[0]), int32(dest.shape[1]), 
+        zoom_adjoint_func(src, dest, int32(self.power),
+                          int32(dest.shape[0]), int32(dest.shape[1]),
                           int32(get_channels(dest)),
                           block=block_, grid=get_grid(dest))
 
 # convolution operator
+
+
 class ConvolutionOperator(LinearOperator):
     """Convolution operator performs a convolution with respect to
        a mask of size l x m with l,m in [1,3,5,7,9,11,13,15]."""
@@ -489,20 +495,20 @@ class ConvolutionOperator(LinearOperator):
     def __init__(self, mask):
         """Initializes operator with <mask>."""
         # enlarge if necessary
-        if (mask.shape[0] % 2 == 0):
-            mask = r_[mask, zeros([1,mask.shape[1]])]
-        if (mask.shape[1] % 2 == 0):
-            mask = c_[mask, zeros([mask.shape[0],1])]
+        if mask.shape[0] % 2 == 0:
+            mask = r_[mask, zeros([1, mask.shape[1]])]
+        if mask.shape[1] % 2 == 0:
+            mask = c_[mask, zeros([mask.shape[0], 1])]
 
         # range check
-        allowed_range = [1,3,5,7,9,11,13,15]
-        if ((not mask.shape[0] in allowed_range)
-            or (not mask.shape[1] in allowed_range)):
+        allowed_range = [1, 3, 5, 7, 9, 11, 13, 15]
+        if (not mask.shape[0] in allowed_range) \
+                or (not mask.shape[1] in allowed_range):
             raise TypeError("Mask shape not in allowed range.")
 
         # copy mask to gpu
         mask = mask.astype('float32').copy(order='F')
-        mask_ad = mask[::-1,::-1].copy(order='F')
+        mask_ad = mask[::-1, ::-1].copy(order='F')
         self.mask = gpuarray.to_gpu(mask)
         self.mask_ad = gpuarray.to_gpu(mask_ad)
         self.normest = sum(abs(mask))
@@ -512,52 +518,54 @@ class ConvolutionOperator(LinearOperator):
         shape <shape>."""
         dshape = list(shape)
         for i in range(2):
-            dshape[i] = max(0, dshape[i]-self.mask.shape[i]+1)
-        return(tuple(dshape))
+            dshape[i] = max(0, dshape[i] - self.mask.shape[i] + 1)
+        return tuple(dshape)
 
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
         sshape = list(shape)
         for i in range(2):
-            sshape[i] += self.mask.shape[i]-1
-        return(tuple(sshape))
+            sshape[i] += self.mask.shape[i] - 1
+        return tuple(sshape)
 
     def norm_est(self):
         """Returns a norm estimate for <self>."""
-        return(self.normest)
+        return self.normest
 
     def apply(self, src, dest):
-        """Applies the convolution/restriction operator to <src> and 
+        """Applies the convolution/restriction operator to <src> and
         stores the result in <dest>."""
-        if (not self.get_dest_shape(src.shape) == dest.shape):
+        if not self.get_dest_shape(src.shape) == dest.shape:
             raise TypeError("Size mismatch")
-        convolve_forward_func(src, self.mask, dest, 
-                              int32(src.shape[0]), int32(src.shape[1]), 
-                              int32(get_channels(src)), 
-                              int32(self.mask.shape[0]/2), 
-                              int32(self.mask.shape[1]/2), 
+        convolve_forward_func(src, self.mask, dest,
+                              int32(src.shape[0]), int32(src.shape[1]),
+                              int32(get_channels(src)),
+                              int32(self.mask.shape[0] / 2),
+                              int32(self.mask.shape[1] / 2),
                               block=block_, grid=get_grid(dest))
-        
+
     def adjoint(self, src, dest):
-        """Applies the extension/adjoint convolution operator to <src> 
+        """Applies the extension/adjoint convolution operator to <src>
         and stores the result in <dest>."""
-        if (not self.get_dest_shape(dest.shape) == src.shape):
+        if not self.get_dest_shape(dest.shape) == src.shape:
             raise TypeError("Size mismatch")
-        convolve_adjoint_func(src, self.mask_ad, dest,  
-                              int32(dest.shape[0]), int32(dest.shape[1]), 
+        convolve_adjoint_func(src, self.mask_ad, dest,
+                              int32(dest.shape[0]), int32(dest.shape[1]),
                               int32(get_channels(dest)),
-                              int32(self.mask_ad.shape[0]/2), 
-                              int32(self.mask_ad.shape[1]/2), 
+                              int32(self.mask_ad.shape[0] / 2),
+                              int32(self.mask_ad.shape[1] / 2),
                               block=block_, grid=get_grid(dest))
 
 # DCT zooming operator
+
+
 class DCTZoomingOperator(LinearOperator):
     """Zooming operator which performs DCT-lowpass filter
     over 2^p x 2^p pixel blocks."""
 
     def __init__(self, power, shape):
-        """Initializes operator with destination shape <shape> 
+        """Initializes operator with destination shape <shape>
         and factor 2^<power>."""
 
         # get shapes
@@ -577,34 +585,34 @@ class DCTZoomingOperator(LinearOperator):
         self.dest_shape = dest_shape
         self.src_shape = src_shape
         self.power = power
-        self.factor = (1 << power)
+        self.factor = 1 << power
 
     def get_dest_shape(self, shape):
         """Returns the shape of the image of <self> applied to data with
         shape <shape>."""
         dshape = list(shape)
         dshape[0:2] = self.dest_shape
-        return(tuple(dshape))
+        return tuple(dshape)
 
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
         sshape = list(shape)
         sshape[0:2] = self.src_shape
-        return(tuple(sshape))
+        return tuple(sshape)
 
     def norm_est(self):
         """Returns a norm estimate for <self>."""
-        return(1.0)
+        return 1.0
 
     def apply(self, src, dest):
-        """Applies the zooming operator to <src> and stores the result 
+        """Applies the zooming operator to <src> and stores the result
         in <dest>."""
-        if (not self.check_shapes(src, dest)):
+        if not self.check_shapes(src, dest):
             raise TypeError("Size mismatch")
 
         channels = get_channels(src)
-    
+
         # compute for each channel
         for i in range(channels):
             src_ = create_slice_view(src, i)
@@ -613,27 +621,27 @@ class DCTZoomingOperator(LinearOperator):
             # transform
             complex_assign(self.src_hat, src_)
             self.src_fft(self.src_hat, self.src_hat)
-                        
+
             # copy into self.dest_hat
             copy_low_coeff_func(self.src_hat, self.dest_hat,
                                 int32(self.power),
-                                int32(self.dest_hat.shape[0]), 
+                                int32(self.dest_hat.shape[0]),
                                 int32(self.dest_hat.shape[1]),
                                 block=block_, grid=get_grid(self.dest_hat))
 
             # transform back
             self.dest_fft(self.dest_hat, self.dest_hat, 1)
-            real_assign(dest_, self.dest_hat, float(1.0/self.factor))
-            
+            real_assign(dest_, self.dest_hat, float(1.0 / self.factor))
+
     def adjoint(self, src, dest):
-        """Applies the adjoint zooming operator to <src> and stores 
+        """Applies the adjoint zooming operator to <src> and stores
         the result in <dest>."""
-        if (not self.check_shapes(dest, src)):
+        if not self.check_shapes(dest, src):
             raise TypeError("Size mismatch")
 
         # change source and dest shape
         channels = get_channels(src)
-    
+
         # compute for each channel
         for i in range(channels):
             src_ = create_slice_view(src, i)
@@ -642,12 +650,12 @@ class DCTZoomingOperator(LinearOperator):
             # transform
             complex_assign(self.dest_hat, src_)
             self.dest_fft(self.dest_hat, self.dest_hat)
-                        
+
             # copy into self.src_hat
             self.src_hat.fill(0)
             copy_low_coeff_ad_func(self.dest_hat, self.src_hat,
                                    int32(self.power),
-                                   int32(self.dest_hat.shape[0]), 
+                                   int32(self.dest_hat.shape[0]),
                                    int32(self.dest_hat.shape[1]),
                                    block=block_, grid=get_grid(self.dest_hat))
 
@@ -662,14 +670,14 @@ class AccumulationOperator(LinearOperator):
 
     def __init__(self, ary, shape=None):
         self.src_len = ary.shape[1]
-        self.src_shape = shape if shape != None else (ary.shape[1], 1) 
+        self.src_shape = shape if shape is not None else (ary.shape[1], 1)
         self.dest_len = ary.shape[0]
 
         ary = (ary != 0).astype('uint8').copy(order='F')
         ary_ad = ary.transpose().copy(order='F')
         self.ary = gpuarray.to_gpu(ary)
         self.ary_ad = gpuarray.to_gpu(ary_ad)
-        
+
         self.norm_estimate = sqrt(sum(ary))
 
     def get_dest_shape(self, shape):
@@ -678,59 +686,61 @@ class AccumulationOperator(LinearOperator):
         dshape = list(shape)
         dshape[0] = self.dest_len
         dshape[1] = 1
-        return(tuple(dshape))
+        return tuple(dshape)
 
     def get_src_shape(self, shape):
-        """Returns the shape of the image of the adjoint <self> 
+        """Returns the shape of the image of the adjoint <self>
         applied to data with shape <shape>."""
         sshape = list(shape)
         sshape[0:2] = self.src_shape
-        return(tuple(sshape))
+        return tuple(sshape)
 
     def norm_est(self):
-        return(self.norm_estimate)
+        return self.norm_estimate
 
     def check_shapes(self, src, dest):
-        return((src.shape[0]*src.shape[1] == self.src_len) and
-               (dest.shape[0]*dest.shape[1] <= self.dest_len) and
-               (get_channels(src) == get_channels(dest)))
+        return (src.shape[0] * src.shape[1] == self.src_len) and \
+               (dest.shape[0] * dest.shape[1] <= self.dest_len) and \
+               (get_channels(src) == get_channels(dest))
 
     def apply(self, src, dest):
-        if (not self.check_shapes(src, dest)):
+        if not self.check_shapes(src, dest):
             raise TypeError("Size mismatch")
 
         chans = get_channels(src)
-        dest_len = dest.shape[0]*dest.shape[1]
-        acc_block = (block_size_x*block_size_y, 1, 1)
-        acc_grid = ((dest_len + acc_block[0] - 1)/acc_block[0], 1)
-        
-        accumulate_pixels_func(self.ary, src, dest, 
-                               int32(self.src_len), int32(dest_len), 
-                               int32(chans), int32(self.dest_len), 
+        dest_len = dest.shape[0] * dest.shape[1]
+        acc_block = (block_size_x * block_size_y, 1, 1)
+        acc_grid = ((dest_len + acc_block[0] - 1) / acc_block[0], 1)
+
+        accumulate_pixels_func(self.ary, src, dest,
+                               int32(self.src_len), int32(dest_len),
+                               int32(chans), int32(self.dest_len),
                                block=acc_block, grid=acc_grid)
 
     def adjoint(self, src, dest):
-        if (not self.check_shapes(dest, src)):
+        if not self.check_shapes(dest, src):
             raise TypeError("Size mismatch")
 
         chans = get_channels(src)
-        src_len = src.shape[0]*src.shape[1]
-        acc_block = (block_size_x*block_size_y, 1, 1)
-        acc_grid = ((self.src_len + acc_block[0] - 1)/acc_block[0], 1)
-        
-        accumulate_pixels_func(self.ary_ad, src, dest, 
-                               int32(src_len), int32(self.src_len), 
+        src_len = src.shape[0] * src.shape[1]
+        acc_block = (block_size_x * block_size_y, 1, 1)
+        acc_grid = ((self.src_len + acc_block[0] - 1) / acc_block[0], 1)
+
+        accumulate_pixels_func(self.ary_ad, src, dest,
+                               int32(src_len), int32(self.src_len),
                                int32(chans), int32(self.src_len),
                                block=acc_block, grid=acc_grid)
 
 # test operator K for adjointness
+
+
 def test_adjoint(K, shape, iter=10):
     """Test the linear operator <K> for adjointness using source
     data with <shape>."""
-    u = gpuarray.zeros(shape,'float32',order='F')
-    Ku = gpuarray.zeros(K.get_dest_shape(u.shape),'float32',order='F')
-    v = gpuarray.zeros(K.get_dest_shape(u.shape),'float32',order='F')
-    Kadv = gpuarray.zeros(shape,'float32',order='F')
+    u = gpuarray.zeros(shape, 'float32', order='F')
+    Ku = gpuarray.zeros(K.get_dest_shape(u.shape), 'float32', order='F')
+    v = gpuarray.zeros(K.get_dest_shape(u.shape), 'float32', order='F')
+    Kadv = gpuarray.zeros(shape, 'float32', order='F')
 
     generator = curandom.XORWOWRandomNumberGenerator()
 
@@ -740,13 +750,13 @@ def test_adjoint(K, shape, iter=10):
         generator.fill_uniform(v)
 
         # apply operators
-        K.apply(u,Ku)
-        K.adjoint(v,Kadv)
+        K.apply(u, Ku)
+        K.adjoint(v, Kadv)
 
         # compute scalar products
-        scp1 = float(gpuarray.dot(Ku,v).get())
-        scp2 = float(gpuarray.dot(u,Kadv).get())
+        scp1 = float(gpuarray.dot(Ku, v).get())
+        scp2 = float(gpuarray.dot(u, Kadv).get())
 
         # print result
-        print(f"Test {i}: <Ku,v>={scp1}, <u,Kadv>={scp2}. Error={abs(scp1-scp2)}")
-
+        print(
+            f"Test {i}: <Ku,v>={scp1}, <u,Kadv>={scp2}, error={abs(scp1-scp2)}")
