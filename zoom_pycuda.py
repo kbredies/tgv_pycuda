@@ -2,7 +2,7 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray, compiler
 from pycuda.elementwise import ElementwiseKernel
-from numpy import float32, int32, zeros, sqrt, array, require
+from numpy import float32, int32, zeros, sqrt, array
 from common_pycuda import block_size_x, block_size_y, block_, get_grid, \
     prepare_data, enlarge_next_power_of_2, display, visualize, gpuarray_copy
 import pyfft.cuda as pyfft
@@ -596,11 +596,6 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
                        'float32', order='F')
     q = gpuarray.zeros([u.shape[0], u.shape[1], 3 * u.shape[2]],
                        'float32', order='F')
-
-    # set up primal variables
-    u = gpuarray.zeros(src_shape, 'float32', order='F')
-    uhat = gpuarray.zeros(src_shape, 'complex64', order='F')
-    u_ = gpuarray_copy(u)
 
     # make plan for solution
     plan_u = pyfft.Plan((u.shape[1], u.shape[0]), float32,

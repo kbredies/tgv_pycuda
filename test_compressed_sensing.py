@@ -2,6 +2,8 @@ from common_pycuda import *
 from tikhonov_pycuda import *
 from linop_pycuda import *
 import scipy.io
+from numpy import maximum
+from matplotlib.pyplot import imsave
 
 def do_reconstruction(K, y, samples, alpha, maxiter, name):
     v = tgv_tikhonov(K, y[0:samples], alpha, 2.0, maxiter=maxiter, vis=100)

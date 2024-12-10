@@ -60,7 +60,7 @@ def test_range(lower, upper, f_orig, alphas, tgv=False):
 
 base = "oak_leaf"
 bins = 6.0
-print(f"Dequantization test ({base})\n-------------------")
+print(f"Dequantization test ({base}, {bins} bins)\n-------------------")
 
 f = imread("test_data/" + base + ".png")
 lower = floor(f * bins) / bins

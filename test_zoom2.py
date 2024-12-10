@@ -62,7 +62,7 @@ def test_range(power, f, f_orig, alphas, tgv=False):
 
 
 base = "hand"
-print(f"Zooming test ({base})\n------------")
+print(f"Zooming test ({base}, FFT downsampling)\n------------")
 
 # read image
 f = imread("test_data/" + base + ".png")

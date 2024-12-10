@@ -59,7 +59,7 @@ def test_range(f, f_orig, alphas, tgv=False):
 
 
 base = "alinas_eye"
-print(f"Denoising test ({base})\n--------------")
+print(f"Denoising test ({base}, L2-discrepancy)\n--------------")
 
 f = imread("test_data/" + base + ".png")
 random.seed(14031621)

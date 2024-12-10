@@ -61,7 +61,7 @@ def test_range(power, f, f_orig, alphas, tgv=False):
 
 
 base = "violin"
-print(f"Zooming test ({base})\n------------")
+print(f"Zooming test ({base}, average downsampling)\n------------")
 
 # read image
 f = imread("test_data/" + base + ".png")

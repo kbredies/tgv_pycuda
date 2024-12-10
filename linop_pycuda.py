@@ -1,7 +1,6 @@
 import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray, compiler, curandom
-from pycuda.elementwise import ElementwiseKernel
 from numpy import float32, int32, sum, zeros, sqrt, c_, r_
 from common_pycuda import block_size_x, block_size_y, block_, get_grid
 import pyfft.cuda as pyfft
@@ -701,7 +700,7 @@ class AccumulationOperator(LinearOperator):
         chans = get_channels(src)
         dest_len = dest.shape[0] * dest.shape[1]
         acc_block = (block_size_x * block_size_y, 1, 1)
-        acc_grid = ((dest_len + acc_block[0] - 1) / acc_block[0], 1)
+        acc_grid = ((dest_len + acc_block[0] - 1) // acc_block[0], 1)
 
         accumulate_pixels_func(self.ary, src, dest,
                                int32(self.src_len), int32(dest_len),
@@ -715,7 +714,7 @@ class AccumulationOperator(LinearOperator):
         chans = get_channels(src)
         src_len = src.shape[0] * src.shape[1]
         acc_block = (block_size_x * block_size_y, 1, 1)
-        acc_grid = ((self.src_len + acc_block[0] - 1) / acc_block[0], 1)
+        acc_grid = ((self.src_len + acc_block[0] - 1) // acc_block[0], 1)
 
         accumulate_pixels_func(self.ary_ad, src, dest,
                                int32(src_len), int32(self.src_len),

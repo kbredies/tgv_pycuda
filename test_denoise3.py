@@ -60,7 +60,7 @@ def test_range(f, f_orig, alphas, tgv=False):
 
 base = "balloons2"
 noise_thres = 0.333333
-print(f"Denoising test ({base})\n--------------")
+print(f"Denoising test ({base}, L1-discrepancy)\n--------------")
 
 f = imread("test_data/" + base + ".png")
 random.seed(14031621)
