@@ -6,7 +6,7 @@ from reikna import cluda
 import reikna.fft as pyfft
 from numpy import float32, int32, zeros, sqrt, array, require
 from common_pycuda import block_size_x, block_size_y, block_, get_grid, \
-    prepare_data, enlarge_next_power_of_2, display, visualize, gpuarray_copy
+     prepare_data, enlarge_next_power_of_2, display, visualize, gpuarray_copy
 
 
 # kernel code
@@ -405,7 +405,7 @@ def tv_zoom_dct(f, power, alpha=0.1, maxiter=500, vis=-1):
     iterations."""
 
     # copy data f on the gpu (fortran order)
-    f = prepare_data(f * (1 << 2 * power))
+    f = prepare_data(f * (1 << 2*power))
     f = enlarge_next_power_of_2(f)
     fhat = gpuarray.to_gpu(require(f, 'complex64', 'F'))
 
@@ -482,30 +482,6 @@ def tgv_update_q(w, q, tau_d, alpha):
                       block=block_, grid=get_grid(w))
 
 
-def tgv_update_u_avg(u, p, f, power, tau_p):
-    tgv_update_u_avg_func(u, p, f, int32(power), float32(tau_p),
-                          int32(u.shape[0]), int32(u.shape[1]),
-                          int32(u.shape[2]),
-                          block=block_, grid=get_grid(u))
-
-
-def tgv_update_u_dct(u, p, uhat, fhat, power, tau_p, fft):
-    tgv_update_u_dct_func(u, p, float32(tau_p),
-                          int32(u.shape[0]), int32(u.shape[1]),
-                          int32(u.shape[2]),
-                          block=block_, grid=get_grid(u))
-
-    # forward transform + setting coefficients + inverse transform
-    complex_assign(uhat, u)
-    fft(uhat, uhat)
-    set_dct_coeff_func(uhat, fhat, int32(power),
-                       int32(fhat.shape[0]), int32(fhat.shape[1]),
-                       int32(fhat.shape[2]),
-                       block=block_, grid=get_grid(fhat))
-    fft(uhat, uhat, 1)
-    real_assign(u, uhat)
-
-
 def tgv_update_w(w, p, q, tau_p):
     tgv_update_w_func(w, p, q, float32(tau_p),
                       int32(w.shape[0]), int32(w.shape[1]),
@@ -568,7 +544,7 @@ def tgv_zoom(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
         cuda.memcpy_dtod(u_.gpudata, u.gpudata, u.nbytes)
         cuda.memcpy_dtod(w_.gpudata, w.gpudata, w.nbytes)
 
-        tgv_update_u_avg(u, p, f_gpu, power, tau_p)
+        tv_update_u_avg(u, p, f_gpu, power, tau_p)
         tgv_update_w(w, p, q, tau_p)
 
         ######################
@@ -594,7 +570,7 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
     (fac*alpha1, alpha1) and maxiter iterations."""
 
     # copy data f on the gpu (fortran order)
-    f = prepare_data(f * (1 << 2 * power))
+    f = prepare_data(f * (1 << 2*power))
     f = enlarge_next_power_of_2(f)
     fhat = gpuarray.to_gpu(require(f, 'complex64', 'F'))
 
@@ -605,7 +581,7 @@ def tgv_zoom_dct(f, power, alpha1=0.1, fac=2.0, maxiter=500, vis=-1):
 
     # get shape of solution
     src_shape = array(f.shape)
-    src_shape[0:2] *= (1 << power)
+    src_shape[0:2] *= 1 << power
     src_shape = [int(a) for a in src_shape]
 
     # set up primal variables

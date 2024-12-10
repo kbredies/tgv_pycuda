@@ -317,9 +317,9 @@ def create_slice_view(u, num):
     v.mem_size = u.shape[0] * u.shape[1]
     return v
 
+
+
 # prototype for a linear operator on the GPU
-
-
 class LinearOperator:
     """Prototype for a linear operator."""
 
@@ -349,9 +349,9 @@ class LinearOperator:
         """Applies the adjoint of <self> to <src> and stores the result
         in <dest>."""
 
+
+
 # the identity operator on the GPU
-
-
 class IdentityOperator(LinearOperator):
     """The identity operator."""
 
@@ -380,9 +380,9 @@ class IdentityOperator(LinearOperator):
         in <dest>."""
         self.apply(src, dest)
 
+
+
 # inpainting operator
-
-
 class InpaintingOperator(LinearOperator):
     """Inpainting operator which projects on the space spanned by
     the elements given by the non-zero elements of an inpainting mask."""
@@ -430,9 +430,9 @@ class InpaintingOperator(LinearOperator):
                              int32(get_channels(src)),
                              block=block_, grid=get_grid(src))
 
+
+
 # zooming operator
-
-
 class ZoomingOperator(LinearOperator):
     """Zooming operator which averages over 2^p x 2^p pixel blocks
     where p is in [0,1,2,3,4]."""
@@ -485,9 +485,9 @@ class ZoomingOperator(LinearOperator):
                           int32(get_channels(dest)),
                           block=block_, grid=get_grid(dest))
 
+
+
 # convolution operator
-
-
 class ConvolutionOperator(LinearOperator):
     """Convolution operator performs a convolution with respect to
        a mask of size l x m with l,m in [1,3,5,7,9,11,13,15]."""
@@ -557,9 +557,9 @@ class ConvolutionOperator(LinearOperator):
                               int32(self.mask_ad.shape[1] / 2),
                               block=block_, grid=get_grid(dest))
 
+
+
 # DCT zooming operator
-
-
 class DCTZoomingOperator(LinearOperator):
     """Zooming operator which performs DCT-lowpass filter
     over 2^p x 2^p pixel blocks."""
@@ -731,9 +731,8 @@ class AccumulationOperator(LinearOperator):
                                int32(chans), int32(self.src_len),
                                block=acc_block, grid=acc_grid)
 
+
 # test operator K for adjointness
-
-
 def test_adjoint(K, shape, iter=10):
     """Test the linear operator <K> for adjointness using source
     data with <shape>."""
