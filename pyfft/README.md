@@ -4,7 +4,7 @@
 The CUDA part of Bogdan Opanchuk's PyFFT module implementing the Fast Fourier Transform.
 ## Acknowledgements
 
- - PyFFT project ([Github page](https://github.com/fjarri-attic/pyfft))
+ - PyFFT project ([GitHub page](https://github.com/fjarri-attic/pyfft))
 
 ## License
 
