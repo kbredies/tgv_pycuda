@@ -1,18 +1,12 @@
-
 # PyCUDA primal-dual algorithms for TV/TGV-constrained imaging problems
 
 Algorithms, examples and tests for denoising, deblurring, zooming, dequantization and compressed sensing with total variation and second-order total generalized variation regularization. Python implementation with GPU accelertation using PyCUDA.
 
 The code reproduces, in particular, the numerical experiments in the associated publication:
 
-- Kristian Bredies. Recovering piecewise smooth multichannel images by minimization of convex functionals with total generalized variation penalty. *Lecture Notes in Computer Science*, 8293:44-77, 2014.
+> Kristian Bredies. Recovering piecewise smooth multichannel images by minimization of convex functionals with total generalized variation penalty. *Lecture Notes in Computer Science*, 8293:44-77, 2014.
  
-
-
-
-
-
-## Installation
+## Getting started
 
 One easy way of getting started is to create a Python virtual environment, install the dependencies and to call a test script. For instance, run in the project folder:
 
