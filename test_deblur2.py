@@ -112,7 +112,7 @@ print(f"TV best parameter: alpha={alpha_tv}, PSNR={psnr_tv}, time={time_tv}")
 imwrite("results/" + base + "_deblurred_tv.png", u_tv)
 
 print("\nTGV deblurring\n--------------")
-alphas = linspace(0.006, 0.007, 11)
+alphas = linspace(0.0065, 0.0075, 11)
 u_tgv, alpha_tgv, psnr_tgv, time_tgv = test_range(K, g, f, alphas, tgv=True)
 print(
     f"TGV best parameter: alpha={alpha_tgv}, PSNR={psnr_tgv}, time={time_tgv}")
