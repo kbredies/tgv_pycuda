@@ -39,6 +39,10 @@ A Jupyter Notebook is available that guides through the examples and reproduces 
 jupyter-notebook examples.ipynb
 ```
 
+## Author
+
+* **[Kristian Bredies](https://imsc.uni-graz.at/bredies/)**, [Department of Mathematics and Scientific Computing](https://mathematik.uni-graz.at/en), [University of Graz](https://www.uni-graz.at/en), kristian.bredies@uni-graz.at
+
  ## Acknowledgements
  
 Support by the [Austrian Science Fund (FWF)](https://www.fwf.ac.at/en/) under grant [SFB F32](https://dx.doi.org/10.55776/F32) (Mathematical Optimization and Applications in Biomedical Sciences) is gratefully acknowledged.
