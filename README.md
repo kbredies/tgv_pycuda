@@ -20,20 +20,20 @@ One easy way of getting started is to create a Python virtual environment, insta
 Please note that a working CUDA installation is required, in particular, a CUDA-enabled GPU. The test scripts are best run in an interactive environment such as `ipython` or `jupyter-notebook`.
 
 ```
-   test_denoise.py
-   test_denoise2.py
-   test_denoise3.py
-   test_deblur.py
-   test_deblur2.py
-   test_zoom.py
-   test_zoom2.py
-   test_dequantize.py
-   test_compressed_sensing.py
+  test_denoise.py
+  test_denoise2.py
+  test_denoise3.py
+  test_deblur.py
+  test_deblur2.py
+  test_zoom.py
+  test_zoom2.py
+  test_dequantize.py
+  test_compressed_sensing.py
 ```
 
 There is also a Jupyter Notebook available that guides through these examples and reproduces the figures in the above-mentioned publication.
 ```bash
-   jupyter-notebook examples.ipynb
+  jupyter-notebook examples.ipynb
 ```
 
  ## Acknowledgements
