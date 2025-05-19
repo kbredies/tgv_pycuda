@@ -11,29 +11,32 @@ The code reproduces, in particular, the numerical experiments in the associated 
 One easy way of getting started is to create a Python virtual environment, install the dependencies and to call a test script. For instance, run in the project folder:
 
 ```bash
-  python -m venv venv
-  source ./venv/bin/activate
-  pip install -r requirements.txt
-  python test_denoise.py
+python -m venv venv
+source ./venv/bin/activate
+pip install -r requirements.txt
+python test_denoise.py
 ```
 
 Please note that a working CUDA installation is required, in particular, a CUDA-enabled GPU. The test scripts are best run in an interactive environment such as `ipython` or `jupyter-notebook`.
 
 ```
-  test_denoise.py
-  test_denoise2.py
-  test_denoise3.py
-  test_deblur.py
-  test_deblur2.py
-  test_zoom.py
-  test_zoom2.py
-  test_dequantize.py
-  test_compressed_sensing.py
+test_denoise.py
+test_denoise2.py
+test_denoise3.py
+test_deblur.py
+test_deblur2.py
+test_zoom.py
+test_zoom2.py
+test_dequantize.py
+test_compressed_sensing.py
 ```
 
-There is also a Jupyter Notebook available that guides through these examples and reproduces the figures in the above-mentioned publication.
+## Guided examples and figures
+
+A Jupyter Notebook is available that guides through the examples and reproduces the figures in the above-mentioned publication.
+
 ```bash
-  jupyter-notebook examples.ipynb
+jupyter-notebook examples.ipynb
 ```
 
  ## Acknowledgements
