@@ -2,7 +2,7 @@
 #
 #   PyCUDA primal-dual algorithms for TV/TGV-constrained imaging problems
 #
-#   Copyright (C) 2013, 2024 Kristian Bredies (kristian.bredies@uni-graz.at)
+#   Copyright (C) 2013, 2025 Kristian Bredies (kristian.bredies@uni-graz.at)
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
