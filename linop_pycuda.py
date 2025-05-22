@@ -510,8 +510,8 @@ class ConvolutionOperator(LinearOperator):
 
         # range check
         allowed_range = [1, 3, 5, 7, 9, 11, 13, 15]
-        if (not mask.shape[0] in allowed_range) \
-                or (not mask.shape[1] in allowed_range):
+        if (mask.shape[0] not in allowed_range) \
+                or (mask.shape[1] not in allowed_range):
             raise TypeError("Mask shape not in allowed range.")
 
         # copy mask to gpu
