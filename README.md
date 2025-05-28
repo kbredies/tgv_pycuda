@@ -1,5 +1,7 @@
 # PyCUDA primal-dual algorithms for TV/TGV-constrained imaging problems
 
+[![DOI](https://zenodo.org/badge/986192133.svg)](https://zenodo.org/badge/latestdoi/986192133)
+
 Algorithms, examples and tests for denoising, deblurring, zooming, dequantization and compressive imaging with total variation (TV) and second-order total generalized variation (TGV) regularization. Python implementation with GPU acceleration using PyCUDA.
 
 The code reproduces, in particular, the numerical experiments in the associated publication:
